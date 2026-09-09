@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Lightbulb, AlertTriangle, Brain, ShieldAlert, CheckCircle2, TrendingDown, Info, Search } from "lucide-react";
 
 import { AppShell } from "@/components/talent/app-shell";
@@ -20,10 +20,12 @@ import {
     attritionSeries,
     attritionSummary,
     exitReasonBreakdown,
-    trainAttritionRisk,
     pct,
     round,
+    type RiskModel,
 } from "@/lib/analytics/compute";
+import { trainAttritionRiskServerFn } from "@/lib/ml-risk";
+import { useServerFn } from "@tanstack/react-start";
 import type { EmployeeRow, Kpi } from "@/lib/analytics/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -47,10 +49,33 @@ export const Route = createFileRoute("/_authenticated/attrition")({
 
 function AttritionPage() {
     const { data, options, isLoading, isError, error, isEmpty } = useAnalytics();
+    const loadRiskModel = useServerFn(trainAttritionRiskServerFn as any);
     const [activeTab, setActiveTab] = useState<"breakdown" | "model" | "at_risk">("breakdown");
     const [searchTerm, setSearchTerm] = useState("");
     const [riskBandFilter, setRiskBandFilter] = useState<string>("all");
     const [selectedRiskEmp, setSelectedRiskEmp] = useState<EmployeeRow | null>(null);
+    const [riskModel, setRiskModel] = useState<RiskModel | null>(null);
+
+    useEffect(() => {
+        let active = true;
+
+        if (!data.employees.length) {
+            setRiskModel(null);
+            return;
+        }
+
+        void (loadRiskModel as any)({ employees: data.employees })
+            .then((result: any) => {
+                if (active) setRiskModel(result);
+            })
+            .catch(() => {
+                if (active) setRiskModel(null);
+            });
+
+        return () => {
+            active = false;
+        };
+    }, [data.employees, loadRiskModel]);
 
     const view = useMemo(() => {
         const totalEmp = data.employees.length;
@@ -111,17 +136,29 @@ function AttritionPage() {
         const series = attritionSeries(data.employees, 18);
         const breakdowns = attritionBreakdowns(data.employees);
         const exitReasons = exitReasonBreakdown(data.employees);
-        const riskModel = trainAttritionRisk(data.employees);
 
         return {
             kpis,
             series,
             breakdowns,
             exitReasons,
-            riskModel,
+            riskModel: riskModel ?? {
+                trained: false,
+                sampleSize: data.employees.length,
+                accuracy: 0,
+                baseRate: 0,
+                importance: [],
+                scores: [],
+                bands: [
+                    { name: "Low", value: 0 },
+                    { name: "Medium", value: 0 },
+                    { name: "High", value: 0 },
+                ],
+                insufficientDataMessage: data.employees.length === 0 ? "No employee history has been imported yet." : undefined,
+            },
             note: attritionSummary(data.employees),
         };
-    }, [data]);
+    }, [data, riskModel]);
 
     // Compute specific explainable risk factors for an employee
     const getContributingFactors = (emp: EmployeeRow) => {
@@ -187,16 +224,22 @@ function AttritionPage() {
                     title="We couldn't load attrition data"
                     description={error instanceof Error ? error.message : "Please try refreshing."}
                 />
-            ) : data.employees.filter((employee) => employee.attrition_status === "exited").length === 0 ? (
+            ) : data.employees.length === 0 ? (
                 <EmptyState
                     title="No historical attrition data available"
                     description="Import employee records with persisted exit dates and exit types to calculate attrition intelligence."
                 />
             ) : (
                 <>
-                    <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50/60 p-3 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300">
-                        <span className="font-semibold">MODEL NOTICE:</span> Attrition Risk Scores represent an explainable classification model trained directly on your imported employee dataset. It provides risk indicator scores for proactive retention interventions.
-                    </div>
+                    {view.riskModel.insufficientDataMessage ? (
+                        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50/60 p-3 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300">
+                            <span className="font-semibold">MODEL NOTICE:</span> {view.riskModel.insufficientDataMessage}
+                        </div>
+                    ) : (
+                        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50/60 p-3 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300">
+                            <span className="font-semibold">MODEL NOTICE:</span> Attrition Risk Scores represent an explainable classification model trained directly on your imported employee dataset. It provides risk indicator scores for proactive retention interventions.
+                        </div>
+                    )}
 
                     <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)}>
                         <TabsList className="mb-4">

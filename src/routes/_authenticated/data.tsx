@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
     Upload,
     FileSpreadsheet,
@@ -11,6 +11,7 @@ import {
     Plus,
     Eye,
     Layers,
+    Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
@@ -24,9 +25,25 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useAnalytics } from "@/lib/analytics/store";
 import { useServerFn } from "@tanstack/react-start";
-import { saveDatasetServerFn, validateDatasetReferencesServerFn } from "@/lib/data.functions";
+import {
+    checkOrganizationScopeServerFn,
+    deleteDatasetServerFn,
+    saveDatasetServerFn,
+    validateDatasetReferencesServerFn,
+    type OrganizationScopeHealth,
+} from "@/lib/data.functions";
 import {
     autoMapColumns,
     inferDatasetType,
@@ -73,7 +90,34 @@ export function DataPage() {
     const queryClient = useQueryClient();
     const saveDatasetRemote = useServerFn(saveDatasetServerFn);
     const validateDatasetReferencesRemote = useServerFn(validateDatasetReferencesServerFn);
+    const checkOrganizationScopeRemote = useServerFn(checkOrganizationScopeServerFn);
+    const deleteDatasetRemote = useServerFn(deleteDatasetServerFn);
     const { raw, isEmpty, uploadedDatasets, isLoading } = useAnalytics();
+    const [organizationScope, setOrganizationScope] = useState<OrganizationScopeHealth>({
+        status: "warning",
+        message: "Organization scope not configured",
+    });
+
+    useEffect(() => {
+        let active = true;
+
+        void checkOrganizationScopeRemote({})
+            .then((result) => {
+                if (active) setOrganizationScope(result);
+            })
+            .catch(() => {
+                if (active) {
+                    setOrganizationScope({
+                        status: "error",
+                        message: "Unable to verify authenticated data access",
+                    });
+                }
+            });
+
+        return () => {
+            active = false;
+        };
+    }, [checkOrganizationScopeRemote]);
 
     const qualityMetrics = useMemo(() => {
         const employeeFields = [
@@ -127,6 +171,24 @@ export function DataPage() {
     const [mappings, setMappings] = useState<ColumnMapping[]>([]);
     const [validationReport, setValidationReport] = useState<ValidationReport | null>(null);
     const [isImporting, setIsImporting] = useState(false);
+    const [datasetToDelete, setDatasetToDelete] = useState<(typeof uploadedDatasets)[number] | null>(null);
+    const [isDeleting, setIsDeleting] = useState(false);
+
+    const handleDeleteDataset = async () => {
+        if (!datasetToDelete || isDeleting) return;
+
+        setIsDeleting(true);
+        try {
+            await deleteDatasetRemote({ data: { datasetId: datasetToDelete.id } });
+            await queryClient.invalidateQueries({ queryKey: ["talentlens"] });
+            setDatasetToDelete(null);
+            toast.success("Dataset deleted successfully.");
+        } catch (error: any) {
+            toast.error(error?.message || "Dataset deletion failed. No records were removed.");
+        } finally {
+            setIsDeleting(false);
+        }
+    };
 
     // Calculate freshness label directly from PostgreSQL dataset metadata
     const freshnessLabel = useMemo(() => {
@@ -261,13 +323,15 @@ export function DataPage() {
                 referenceValidation = await validateDatasetReferencesRemote({ data: { employees: normalizedEmployees } });
                 if (!referenceValidation.valid) {
                     const referenceErrors = referenceValidation.errors.map((error) => ({ ...error, severity: "error" as const }));
+                    const summaryMessage = referenceValidation.summary ?? "Import failed because required organization reference data is missing.";
+                    const actionableMessage = referenceValidation.actionable ?? "Create or upload the required departments, job openings, and sources before retrying.";
                     setValidationReport((current) => current ? {
                         ...current,
                         validRows: Math.max(0, current.validRows - referenceErrors.length),
                         errorRows: current.errorRows + referenceErrors.length,
                         errors: [...current.errors, ...referenceErrors],
                     } : current);
-                    toast.error(referenceErrors.map((error) => `Row ${error.rowNumber}: ${error.message}`).join(" "));
+                    toast.error(`${summaryMessage} ${actionableMessage}`);
                     setIsImporting(false);
                     return;
                 }
@@ -277,8 +341,10 @@ export function DataPage() {
                 referenceValidation = await validateDatasetReferencesRemote({ data: { jobs: normalizedJobs } });
                 if (!referenceValidation.valid) {
                     const referenceErrors = referenceValidation.errors.map((error) => ({ ...error, severity: "error" as const }));
+                    const summaryMessage = referenceValidation.summary ?? "Import failed because required organization reference data is missing.";
+                    const actionableMessage = referenceValidation.actionable ?? "Create or upload the required departments, job openings, and sources before retrying.";
                     setValidationReport((current) => current ? { ...current, validRows: Math.max(0, current.validRows - referenceErrors.length), errorRows: current.errorRows + referenceErrors.length, errors: [...current.errors, ...referenceErrors] } : current);
-                    toast.error(referenceErrors.map((error) => `Row ${error.rowNumber}: ${error.message}`).join(" "));
+                    toast.error(`${summaryMessage} ${actionableMessage}`);
                     setIsImporting(false);
                     return;
                 }
@@ -288,8 +354,10 @@ export function DataPage() {
                 referenceValidation = await validateDatasetReferencesRemote({ data: { candidates: normalizedCandidates } });
                 if (!referenceValidation.valid) {
                     const referenceErrors = referenceValidation.errors.map((error) => ({ ...error, severity: "error" as const }));
+                    const summaryMessage = referenceValidation.summary ?? "Import failed because required organization reference data is missing.";
+                    const actionableMessage = referenceValidation.actionable ?? "Create or upload the required departments, job openings, and sources before retrying.";
                     setValidationReport((current) => current ? { ...current, validRows: Math.max(0, current.validRows - referenceErrors.length), errorRows: current.errorRows + referenceErrors.length, errors: [...current.errors, ...referenceErrors] } : current);
-                    toast.error(referenceErrors.map((error) => `Row ${error.rowNumber}: ${error.message}`).join(" "));
+                    toast.error(`${summaryMessage} ${actionableMessage}`);
                     setIsImporting(false);
                     return;
                 }
@@ -299,8 +367,10 @@ export function DataPage() {
                 referenceValidation = await validateDatasetReferencesRemote({ data: { targets: normalizedTargets } });
                 if (!referenceValidation.valid) {
                     const referenceErrors = referenceValidation.errors.map((error) => ({ ...error, severity: "error" as const }));
+                    const summaryMessage = referenceValidation.summary ?? "Import failed because required organization reference data is missing.";
+                    const actionableMessage = referenceValidation.actionable ?? "Create or upload the required departments, job openings, and sources before retrying.";
                     setValidationReport((current) => current ? { ...current, validRows: Math.max(0, current.validRows - referenceErrors.length), errorRows: current.errorRows + referenceErrors.length, errors: [...current.errors, ...referenceErrors] } : current);
-                    toast.error(referenceErrors.map((error) => `Row ${error.rowNumber}: ${error.message}`).join(" "));
+                    toast.error(`${summaryMessage} ${actionableMessage}`);
                     setIsImporting(false);
                     return;
                 }
@@ -808,10 +878,21 @@ export function DataPage() {
                             </div>
                             <div className="flex items-center justify-between rounded-lg border border-border p-3">
                                 <div className="flex items-center gap-2">
-                                    <ShieldCheck className="size-4 text-emerald-600" />
+                                    <ShieldCheck className={organizationScope.status === "green" ? "size-4 text-emerald-600" : organizationScope.status === "error" ? "size-4 text-red-600" : "size-4 text-amber-600"} />
                                     <span className="font-semibold">Authenticated Data Access (RLS)</span>
                                 </div>
-                                <Badge variant="outline" className="text-amber-600 border-amber-300">Organization scope not configured</Badge>
+                                <Badge
+                                    variant="outline"
+                                    className={
+                                        organizationScope.status === "green"
+                                            ? "border-emerald-300 text-emerald-600"
+                                            : organizationScope.status === "error"
+                                                ? "border-red-300 text-red-600"
+                                                : "border-amber-300 text-amber-600"
+                                    }
+                                >
+                                    {organizationScope.message}
+                                </Badge>
                             </div>
                             <div className="flex items-center justify-between rounded-lg border border-border p-3">
                                 <div className="flex items-center gap-2">
@@ -847,6 +928,7 @@ export function DataPage() {
                                             <TableHead className="text-right">Rows Detected</TableHead>
                                             <TableHead className="text-right">Imported Rows</TableHead>
                                             <TableHead>Status</TableHead>
+                                            <TableHead className="text-right">Actions</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
@@ -865,6 +947,18 @@ export function DataPage() {
                                                         {log.status}
                                                     </Badge>
                                                 </TableCell>
+                                                <TableCell className="text-right">
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="gap-2 text-xs text-red-600 hover:bg-red-50 hover:text-red-700"
+                                                        onClick={() => setDatasetToDelete(log)}
+                                                        title={`Delete ${log.file_name}`}
+                                                    >
+                                                        <Trash2 className="size-3.5" />
+                                                        Delete
+                                                    </Button>
+                                                </TableCell>
                                             </TableRow>
                                         ))}
                                     </TableBody>
@@ -874,6 +968,35 @@ export function DataPage() {
                     </Card>
                 </TabsContent>
             </Tabs>
+
+            <AlertDialog open={Boolean(datasetToDelete)} onOpenChange={(open) => !open && !isDeleting && setDatasetToDelete(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete imported dataset?</AlertDialogTitle>
+                        <AlertDialogDescription asChild>
+                            <div className="space-y-2">
+                                <p><strong>File:</strong> {datasetToDelete?.file_name}</p>
+                                <p><strong>Imported:</strong> {datasetToDelete ? new Date(datasetToDelete.created_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : ""}</p>
+                                <p><strong>Records:</strong> {datasetToDelete?.imported_rows ?? 0}</p>
+                                <p>This permanently removes records exclusively associated with this organization-scoped import. Shared upserted records remain available to other imports.</p>
+                            </div>
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            disabled={isDeleting}
+                            className="bg-red-600 text-white hover:bg-red-700"
+                            onClick={(event) => {
+                                event.preventDefault();
+                                void handleDeleteDataset();
+                            }}
+                        >
+                            {isDeleting ? "Deleting..." : "Delete Dataset"}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </AppShell>
     );
 }

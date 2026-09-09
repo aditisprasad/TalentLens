@@ -25,6 +25,32 @@ TalentLens brings these workflows together into one platform so organizations ca
 - 📈 How is workforce composition changing over time?
 - 🤖 What actionable insights can be derived from our organizational data?
 
+## ✅ Implemented today
+
+This repository implements a real upload-first workforce analytics product backed by PostgreSQL and organized around tenant-aware data access.
+
+Implemented features include:
+
+- PostgreSQL-backed persistence and organization-scoped data access
+- CSV/XLSX ingestion with validation, mapping, and preview flow
+- Atomic dataset import with schema-level checks and reference validation
+- Workforce analytics, recruitment funnel metrics, and attrition intelligence
+- Workforce gap analysis driven by uploaded targets and current staffing
+- Data quality validation for duplicates, invalid values, missing fields, and unresolved references
+- Honest empty/insufficient-data states instead of synthetic metrics
+- Explainable attrition-risk scoring when enough historical employee data exists
+- Transactional import deletion with organization authorization and dependent-record handling
+- Authenticated and organization-aware application architecture with RLS and RBAC expectations preserved at the application layer
+
+## 🔮 Future Enhancements
+
+The project is intentionally conservative about unsupported claims. Future enhancements may include:
+
+- deeper production-quality operational reporting
+- additional automation around recurring imports
+- broader advanced forecasting and model monitoring
+- expanded workflow tooling beyond the current analytics-first scope
+
 ---
 
 # ✨ Core Features
@@ -221,6 +247,25 @@ TalentLens maintains persistent import history so organizations can track their 
 * ⚠️ Validation errors
 
 Import history is persisted in PostgreSQL rather than being treated as temporary frontend state.
+
+### Safe dataset deletion
+
+Import History includes a confirmation-gated delete action backed by the PostgreSQL
+`delete_workspace_dataset` function. New imports register the employee, job, candidate,
+and workforce-target records they touched in `dataset_record_links`. Deletion resolves the
+current authenticated organization on the server, verifies ownership or an authorized
+management role, removes only exclusively linked records in dependency order, and deletes
+the import-history row in the same transaction.
+
+Upserts are intentionally shared: if a later import updates a record that an earlier import
+also references, deleting the later import does not remove that shared record. Existing
+imports created before lineage tracking have no fabricated ownership links and therefore
+can only be removed from history until they are re-imported with lineage metadata. This is
+the conservative behavior required to avoid deleting unrelated or historically shared data.
+
+Deleting the final linked import leaves PostgreSQL with zero business records for that
+organization. The application then reads its normal empty state; it never seeds or restores
+synthetic/demo business data.
 
 ---
 

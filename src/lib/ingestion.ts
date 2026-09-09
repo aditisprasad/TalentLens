@@ -52,6 +52,12 @@ export type ImportHistoryItem = {
     version: number;
 };
 
+export type ReferenceValidationSummary = {
+    summary: string;
+    actionable: string;
+    missingReferenceTypes: string[];
+};
+
 export type ParsedSheetResult = {
     sheetName: string;
     headerRowIndex: number;
@@ -744,6 +750,43 @@ export function normalizeTargetRows(
 }
 
 /** Generate a downloadable CSV string of validation errors */
+export function summarizeReferenceValidationErrors(
+    errors: Array<{ rowNumber: number; field: string; value: string; message: string }>,
+): ReferenceValidationSummary {
+    const missingReferenceTypes = [...new Set(
+        errors.map((error) => {
+            const message = (error.message ?? "").toLowerCase();
+            if (message.includes("department")) return "department";
+            if (message.includes("job opening") || message.includes("job title")) return "job opening";
+            if (message.includes("recruitment source") || message.includes("source")) return "recruitment source";
+            return error.field.toLowerCase();
+        }),
+    )];
+
+    const totalMissing = errors.length;
+    const summary =
+        totalMissing === 1
+            ? "Import blocked by 1 missing reference."
+            : `Import blocked by ${totalMissing} missing references.`;
+
+    const actionableParts = [
+        missingReferenceTypes.includes("department") ? "add or upload the expected departments" : null,
+        missingReferenceTypes.includes("job opening") ? "create or match the required job openings" : null,
+        missingReferenceTypes.includes("recruitment source") ? "add or map the required recruitment sources" : null,
+    ].filter(Boolean) as string[];
+
+    const actionable =
+        actionableParts.length > 0
+            ? `Fix the missing references before retrying: ${actionableParts.join(", ")}. Review the row-level import errors and upload the correct department/source/job data in this organization.`
+            : "Review the row-level import errors and upload the correct organization reference data before retrying the import.";
+
+    return {
+        summary: `${summary} The dataset contains missing references that prevent a valid upload.`,
+        actionable,
+        missingReferenceTypes,
+    };
+}
+
 export function generateErrorCSV(errors: RowValidationError[]): string {
     const header = "Row Number,Field,Value,Severity,Error Message\n";
     const rows = errors.map(

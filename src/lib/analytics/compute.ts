@@ -426,6 +426,7 @@ export type RiskModel = {
   sampleSize: number;
   accuracy: number;
   baseRate: number;
+  insufficientDataMessage?: string;
   importance: { feature: string; weight: number; direction: "increases" | "reduces" }[];
   scores: {
     id: string;
@@ -458,7 +459,17 @@ export function trainAttritionRisk(employees: EmployeeRow[]): RiskModel {
     ],
   };
   const exits = employees.filter((e) => e.attrition_status === "exited");
-  if (employees.length < 60 || exits.length < 15) return empty;
+  if (employees.length < 60 || exits.length < 15) {
+    return {
+      ...empty,
+      insufficientDataMessage:
+        employees.length === 0
+          ? "Attrition prediction unavailable — no employee history has been imported yet."
+          : employees.length < 60
+            ? "Attrition prediction unavailable — insufficient historical data. Upload at least 60 employee records to enable model training."
+            : "Attrition prediction unavailable — insufficient historical exit data.",
+    };
+  }
 
   const X = employees.map((e) => FEATURES.map((f) => f.get(e)));
   const y = employees.map((e) => (e.attrition_status === "exited" ? 1 : 0));

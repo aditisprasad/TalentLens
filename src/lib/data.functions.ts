@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import type { Dataset, EmployeeRow, JobRow, CandidateRow, TargetRow } from "@/lib/analytics/types";
+import { summarizeReferenceValidationErrors } from "@/lib/ingestion";
 
 type DeptRef = { name: string } | null;
 
@@ -24,6 +25,29 @@ export type ImportReferenceError = {
   field: string;
   value: string;
   message: string;
+};
+
+export type ReferenceValidationResult = {
+  valid: boolean;
+  errors: ImportReferenceError[];
+  summary?: string;
+  actionable?: string;
+  missingReferenceTypes?: string[];
+};
+
+export type OrganizationScopeHealth = {
+  status: "green" | "warning" | "error";
+  message: string;
+  organization_id?: string | null;
+  membership_count?: number;
+};
+
+export type DeleteDatasetResult = {
+  success: boolean;
+  deleted_candidates: number;
+  deleted_jobs: number;
+  deleted_employees: number;
+  deleted_targets: number;
 };
 
 function isValidUUID(str: string): boolean {
@@ -167,6 +191,81 @@ export const fetchDataset = createServerFn({ method: "GET" })
     }
   });
 
+export const checkOrganizationScopeServerFn = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }): Promise<OrganizationScopeHealth> => {
+    if (!context?.supabase || !context.userId) {
+      return { status: "error", message: "Unable to verify authenticated data access" };
+    }
+
+    const sb = context.supabase;
+
+    try {
+      const [{ data: memberships, error: membershipsError }, currentOrgResult] = await Promise.all([
+        (sb as any).from("organization_members").select("organization_id").eq("user_id", context.userId).limit(20),
+        (sb as any).rpc("current_organization_id"),
+      ]);
+
+      const { data: currentOrgId, error: currentOrgError } = currentOrgResult as { data?: string | null; error?: { message?: string } | null };
+      if (membershipsError) throw new Error(membershipsError.message);
+      if (currentOrgError) throw new Error(currentOrgError.message);
+
+      const membershipCount = Array.isArray(memberships) ? memberships.length : 0;
+      const organizationId = typeof currentOrgId === "string" && currentOrgId ? currentOrgId : null;
+
+      if (!organizationId) {
+        return {
+          status: "warning",
+          message: "Organization scope not configured",
+          organization_id: null,
+          membership_count: membershipCount,
+        };
+      }
+
+      const { error: accessError } = await (sb as any)
+        .from("uploaded_datasets")
+        .select("id")
+        .eq("organization_id", organizationId)
+        .limit(1);
+      if (accessError) {
+        throw new Error(accessError.message);
+      }
+
+      return {
+        status: "green",
+        message: "Organization-scoped access verified",
+        organization_id: organizationId,
+        membership_count: membershipCount,
+      };
+    } catch (error) {
+      console.error("[SERVER DB] [checkOrganizationScopeServerFn] failed:", error);
+      return { status: "error", message: "Unable to verify authenticated data access" };
+    }
+  });
+
+export const deleteDatasetServerFn = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((data: { datasetId: string }) => data)
+  .handler(async ({ context, data }): Promise<DeleteDatasetResult> => {
+    if (!context?.supabase || !isValidUUID(context.userId) || !isValidUUID(data.datasetId)) {
+      throw new Error("Authenticated identity and a valid dataset are required for deletion.");
+    }
+
+    const { data: result, error } = await (context.supabase.rpc as any)("delete_workspace_dataset", {
+      p_dataset_id: data.datasetId,
+    });
+
+    if (error) {
+      throw new Error(error.message || "Dataset deletion failed.");
+    }
+
+    if (!result?.success) {
+      throw new Error("Dataset deletion failed.");
+    }
+
+    return result as DeleteDatasetResult;
+  });
+
 export const validateDatasetReferencesServerFn = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .validator(
@@ -177,7 +276,7 @@ export const validateDatasetReferencesServerFn = createServerFn({ method: "POST"
       targets?: TargetRow[];
     }) => data,
   )
-  .handler(async ({ context, data }): Promise<{ valid: boolean; errors: ImportReferenceError[] }> => {
+  .handler(async ({ context, data }): Promise<ReferenceValidationResult> => {
     if (!context?.supabase || !isValidUUID(context.userId)) {
       throw new Error("Authenticated Supabase client and user identity are required to validate workspace data.");
     }
@@ -222,7 +321,14 @@ export const validateDatasetReferencesServerFn = createServerFn({ method: "POST"
       }
     });
 
-    return { valid: errors.length === 0, errors };
+    const summary = summarizeReferenceValidationErrors(errors);
+    return {
+      valid: errors.length === 0,
+      errors,
+      summary: summary.summary,
+      actionable: summary.actionable,
+      missingReferenceTypes: summary.missingReferenceTypes,
+    };
   });
 
 export const saveDatasetServerFn = createServerFn({ method: "POST" })
