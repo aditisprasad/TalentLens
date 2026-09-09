@@ -1,0 +1,6 @@
+Employee ID,Full Name,Department,Job Title,Location,Employment Type,Hire Date,Salary,Performance Rating,Satisfaction Score,Status
+EMP-1001,Rajesh Kumar,Engineering,Senior Full Stack Engineer,Bengaluru,Full-Time,2023-01-15,1850000,4.5,4.2,Active
+EMP-1002,Ananya Roy,Product,Product Manager,Mumbai,Full-Time,2022-06-10,2100000,4.8,4.6,Active
+EMP-1003,Vikram Singh,Sales,Enterprise Account Executive,Delhi,Full-Time,2024-02-01,1500000,3.9,3.8,Active
+EMP-1004,Pooja Sharma,HR,HR Business Partner,Bengaluru,Full-Time,2021-11-20,1200000,4.2,4.0,Active
+EMP-1005,Amit Patel,Engineering,DevOps Lead,Pune,Full-Time,2020-04-12,2400000,4.6,4.4,Exited
