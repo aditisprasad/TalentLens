@@ -25,32 +25,6 @@ TalentLens brings these workflows together into one platform so organizations ca
 - 📈 How is workforce composition changing over time?
 - 🤖 What actionable insights can be derived from our organizational data?
 
-## ✅ Implemented today
-
-This repository implements a real upload-first workforce analytics product backed by PostgreSQL and organized around tenant-aware data access.
-
-Implemented features include:
-
-- PostgreSQL-backed persistence and organization-scoped data access
-- CSV/XLSX ingestion with validation, mapping, and preview flow
-- Atomic dataset import with schema-level checks and reference validation
-- Workforce analytics, recruitment funnel metrics, and attrition intelligence
-- Workforce gap analysis driven by uploaded targets and current staffing
-- Data quality validation for duplicates, invalid values, missing fields, and unresolved references
-- Honest empty/insufficient-data states instead of synthetic metrics
-- Explainable attrition-risk scoring when enough historical employee data exists
-- Transactional import deletion with organization authorization and dependent-record handling
-- Authenticated and organization-aware application architecture with RLS and RBAC expectations preserved at the application layer
-
-## 🔮 Future Enhancements
-
-The project is intentionally conservative about unsupported claims. Future enhancements may include:
-
-- deeper production-quality operational reporting
-- additional automation around recurring imports
-- broader advanced forecasting and model monitoring
-- expanded workflow tooling beyond the current analytics-first scope
-
 ---
 
 # ✨ Core Features
