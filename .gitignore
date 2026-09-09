@@ -39,3 +39,6 @@ dist-ssr
 # Supabase local/temp files
 supabase/.temp/
 supabase/cleanup_synthetic_seed.sql
+
+# Lovable metadata
+.lovable/
