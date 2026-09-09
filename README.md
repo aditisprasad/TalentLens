@@ -1,8 +1,3 @@
-Absolutely 😭😂 — the previous one is **too corporate/plain** for a GitHub portfolio. Let’s make it visually attractive while still keeping it professional enough for recruiters. ✨
-
-Here’s the **complete replacement README** with emojis, badges, sections, architecture visuals, and cleaner GitHub formatting:
-
-````markdown
 # 🔎 TalentLens
 
 ### 🚀 Workforce & Recruitment Intelligence Platform
